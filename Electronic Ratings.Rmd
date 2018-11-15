@@ -1,0 +1,151 @@
+---
+title: 'Project'
+author: "Yixin Lian yl4089"
+date: "2018/**/**"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+```
+
+My goal is to focus on the time variable in our dataset. Our dataset includes an even sample of the customer reviews for electronic products sold on Amazon and BestBuy websites. 
+```{r}
+library(tidyverse)
+electron_data <- 
+  read.csv(file="/Users/easonlian/Desktop/programming/eda/Project/DatafinitiElectronicsProductData.csv", 
+                            header=TRUE, sep=",")
+
+```
+
+
+First we take a look at the NA value of our dataset. It shows there are only four variabls have na values. The dataset is relatively complete. 
+
+```{r}
+colSums(is.na(electron_data))
+```
+
+Then we select the key variables we would like to investigate. 
+
+```{r}
+yx_select <- select(electron_data, name, reviews.date, reviews.rating)
+yx_select <- yx_select[rowSums(is.na(yx_select)) == 0, ] #remove na rows
+yx_select$reviews.date <- as.Date(yx_select$reviews.date)
+library(ggplot2)
+library(tidyverse)
+head(yx_select)
+```
+
+Now in order to have a deep understanding of the time span of the variable "reviews.date", we draw a jitter plot (boxplot in this case cannot show the outliers clearly) of it first. The graph below displays that most of the data range from 2014 to 2018. 
+
+
+```{r}
+ggplot(data=yx_select, aes(x="", y=reviews.date)) + 
+  geom_jitter()
+
+```
+
+We want to explore the rating changes of different products by time. Hence it's also important for us to preknow the distribution of reviews number for thoes elctronic prodcuts. We draw a hitogram to clearly show the count number. The diagram below shows that the product "L9HUO1UIRwCTSC-B" has most reviews. It to some extent indicates that this product may be the most popular one among all 50 electronic products.
+
+```{r}
+yx_select$name <- abbreviate(yx_select$name, minlength = 2)
+#name_count <- yx_select %>% group_by(yx_select$name) %>% summarize(count=n())
+
+ggplot(data=yx_select, aes(x=name, fill=name)) + 
+  geom_bar() + theme(legend.position="none", 
+                     text = element_text(size=8)) +
+  coord_flip()
+```
+
+It's worth mentioning here that the length of product names is too long, thus we use "abbreviate" function to make all the names shorter. Corresponding names are displayed below.  
+
+```{r}
+library(lubridate)
+unique(yx_select$name)
+```
+
+We can now begin to explore the ratings conditioned on date for different products. Because all 50 products will make the plot too complicated, we only look one product at a time. For example, we take "L9HUO1UIRwCTSC-B". We first focus on the review number. The diagram below shows that the changes of reviews number with time. There are some variations, such as, the review number decreses nearly half from 2017 to 2018. In order to show the time changes for all products for our project, I will try to use shiny next time so that audience can choose interested products to see their corresponding graphs. 
+
+```{r}
+review_count_select <- yx_select %>% 
+  group_by(name, season = floor_date(reviews.date, unit = "season")) %>% 
+   summarise(n = n()) %>% mutate(freq = n/sum(n))
+#'MSP4TCwFI', "L9HUO1UIRwCTSC-B", "SSXOESRRwVK", "SM", "S4CF(SLT(", "EE7AWH(" 
+selected = review_count_select[
+  review_count_select$name == c("L9HUO1UIRwCTSC-B" ),]
+ggplot(data=selected, 
+       aes(x=season, y=freq, group=name, color=name)) +
+  geom_line() + stat_smooth()
+```
+
+And we can also focus on the average ratings change by time. The following diagram shows that with time goes by, the average rating of the product "L9HUO1UIRwCTSC-B" increases from 3.8 to 4.1 and then decreases to 3.6. 
+
+```{r}
+average_rating_select <- yx_select %>% 
+  group_by(name, season = floor_date(reviews.date, unit = "season")) %>% 
+   summarise(average.rating = mean(reviews.rating, na.rm=TRUE))
+#'MSP4TCwFI', "L9HUO1UIRwCTSC-B", "SSXOESRRwVK", "SM", "S4CF(SLT(", "EE7AWH(" 
+selected = average_rating_select[
+  average_rating_select$name == c("L9HUO1UIRwCTSC-B"),]
+ggplot(data=selected, 
+       aes(x=season, y=average.rating, group=name, color=name)) +
+  geom_line() + stat_smooth()
+```
+
+It seems we can not only explore the relationships from the product perspective, but also from the brand perspective. There are more than 30 kinds of brands. That's take a look for them. 
+
+```{r}
+yx_select_brand <- select(electron_data, brand, reviews.date, reviews.rating)
+yx_select_brand <- yx_select_brand[rowSums(is.na(yx_select_brand)) == 0, ] #remove na rows
+yx_select_brand$reviews.date <- as.Date(yx_select_brand$reviews.date)
+#brand_count <- yx_select_brand %>% group_by(yx_select_brand$name) %>% summarize(count=n())
+ggplot(data=yx_select_brand, aes(x=brand, fill=brand)) + 
+  geom_bar() + theme(legend.position="none", 
+                     text = element_text(size=8)) +
+  coord_flip()
+```
+
+And we choose "Logitech" brand for example, do the same to analyse the changes with time. 
+
+```{r}
+review_count_select <- yx_select_brand %>% 
+  group_by(brand, season = floor_date(reviews.date, unit = "season")) %>% 
+   summarise(n = n()) %>% mutate(freq = n/sum(n))
+selected = review_count_select[
+  review_count_select$brand == c("Logitech"),]
+ggplot(data=selected, 
+       aes(x=season, y=freq, group=brand, color=brand)) +
+  geom_line() + stat_smooth()
+```
+
+
+```{r}
+
+average_rating_select <- yx_select_brand %>% 
+  group_by(brand, season = floor_date(reviews.date, unit = "season")) %>% 
+   summarise(average.rating = mean(reviews.rating, na.rm=TRUE))
+selected = average_rating_select[
+  average_rating_select$brand == c("Logitech"),]
+ggplot(data=selected, 
+       aes(x=season, y=average.rating, group=brand, color=brand)) +
+  geom_line() + stat_smooth()
+```
+
+In summary:
+
+1. We have to admit all the electronic products will be old when the new version comes to the market. This will to some extent influence the popularity of one particular product. This will result in the decrease of review number on that product. So it seems if we look at the average rating by time, it will be more unbiased. 
+
+2. It's also interesting to compare the relationship for different brands. Why is it interesting? I think it's because most likely if customers like one particular product, they also tend to like the other products under same brand. So it's meaningful for us to compare from brand perspective. 
+
+3. It's also worth mentioning that we cannot decide which one is popular only by the review number. For example, if one product is suck, everyone on the Internet wants to write a bad review for it, the review number will be large, however, this is not a popular product. The average rating will play an important role in this case. 
+
+In order to make the graph more interactive, we will try to use shiny next time. Thanks.
+
+
+
+
+
