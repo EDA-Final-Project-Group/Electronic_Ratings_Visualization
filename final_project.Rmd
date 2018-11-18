@@ -1,0 +1,136 @@
+---
+title: "Edav Final Project"
+author: "Zhongling Jiang"
+date: "10/30/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+```
+
+## EDA
+
+```{r}
+library(tidyverse)
+library(extracat)
+library(vcd)
+library(grid)
+library(tidyquant)
+library(devtools)
+library(gridExtra)
+library(tm)
+library(wordcloud)
+library(dendextend)
+library(ggplot2)
+library(ggthemes)
+library(reshape2)
+```
+
+```{r}
+amazon_electronics <- read.csv("../data/DatafinitiElectronicsProductData.csv", sep= ",", header= TRUE)
+```
+
+```{r}
+#extracat::visna(amazon_electronics)
+```
+
+```{r}
+str(amazon_electronics)
+```
+
+## Visualization on Products
+
+### 1. Number of Reviews on Each Product
+
+The number of reviews to some extent reflects the popularity of a product; we use histogram to to display the count of reviews associated with each product ASIN number -- we do not display the product name directly since it is too long. We label top 5 popular product items' names on the histogram. 
+```{r}
+product_name_id_matching <- amazon_electronics[!duplicated(amazon_electronics$name), c("id", "asins", "name")]
+```
+
+```{r}
+# find products with top 5 reviews and find their product name
+top5_reviews_asins<- sort(table(amazon_electronics$asins), decreasing = TRUE)[1:5]
+product_name_id_matching %>% filter(asins %in% names(top5_reviews_asins)) %>% select(asins, name)
+```
+
+```{r}
+g1_1 <- ggplot(amazon_electronics, aes(x = asins)) + 
+    geom_bar() +theme(axis.text.x = element_text(angle = 90, hjust = 1))
+g1_1 + geom_text(x=19, y=1600, label="Logitech Harmony Remote", size =2) +
+     geom_text(x= 34, y= 600, label="Microsoft Surface Pro", size= 2) +
+     geom_text(x= 44, y= 580, label="Sony Wireless Speaker", size= 2) +
+     geom_text(x= 38, y= 400, label="Everest Headphone", size= 2) +
+     geom_text(x =43, y= 390, label= "Slingbox", size =2) +
+     ggtitle("Review counts by Product")
+```
+
+### 2. Product, Reviews v.s Recommend
+
+Besides number of reviews, we want to investigate into whether users recommend the product. This also reflects whether these reviews are positive or negative reviews.
+```{r}
+g2 <- ggplot(amazon_electronics, aes(x = asins, y = reviews.doRecommend, fill= factor(reviews.doRecommend))) + 
+    geom_bar(stat="identity") +theme(axis.text.x = element_text(angle = 90, hjust = 1)) + theme(legend.text=element_text(size=rel(0.5)), legend.position="top") +
+  ggtitle("Product v.s Do.Recommend")
+
+g2
+```
+
+The plot is not very informative when too many NA values (in reviews.doRecommend variable) are present. I remove these reviews with missing recommend values. It could introduce some bias, but we will remedy for this using NLP techniques later in the project and make a `corrected` barplot for this.
+
+```{r}
+amazon_electronics_missing_dorecommend_removed <- amazon_electronics[!is.na(amazon_electronics$reviews.doRecommend),]
+g2_2 <- ggplot(amazon_electronics_missing_dorecommend_removed, aes(x = asins, y = reviews.doRecommend, fill= factor(reviews.doRecommend))) + 
+    geom_bar(stat="identity") +theme(axis.text.x = element_text(angle = 90, hjust = 1)) + theme(legend.text=element_text(size=rel(0.5)), legend.position="top") +
+  ggtitle("Product v.s Do.Recommend") +
+  geom_text(x=19, y=1800, label="Logitech Harmony Remote", size =2) +
+  geom_text(x= 34, y= 900, label="Microsoft Surface Pro", size= 2) +
+  geom_text(x= 44, y= 880, label="Sony Wireless Speaker", size= 2) +
+  geom_text(x= 38, y= 700, label="Everest Headphone", size= 2) +
+  geom_text(x =43, y= 690, label= "Slingbox", size =2)
+g2_2
+```
+
+**Observation:** It seems most of users who wrote reviews tend to give "doRecommend". This applies to the top 5 popular products. Then it becomes important to summarise users comments -- their descriptions, key words, etc. Also, as mentioned above, we need to analyze review text of users who do not fill in "do/do not Recommend".  
+
+### 3. A Little Dig into Review Texts
+
+Let's look at what users say about products in positive reviews -- users who put "doRecommend".
+As an example, we look at the popular product Microsoft Surface Pro. 
+```{r}
+# extract positive reviews
+# users who has do recommend
+amazon_electronics_do_recommend <- amazon_electronics[amazon_electronics$reviews.doRecommend == TRUE, ]
+amazon_electronics_do_recommend_surfacepro <- amazon_electronics_do_recommend[amazon_electronics_do_recommend$asins == "B0168YIWSI", ]
+```
+
+We preprocess the text: lower case, remove punctuation remove stop words. Then build word document matrix to see the most frequent words. We make use of word cloud to visualize what are common words appearing in cutomer reviews. Visualize in WordCloud in R Reference: http://www.sthda.com/english/wiki/text-mining-and-word-cloud-fundamentals-in-r-5-simple-steps-you-should-know.  
+```{r}
+stop_words <- c("i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", 
+            "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", 
+            "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", 
+            "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", 
+            "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", 
+            "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", 
+            "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", 
+            "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", 
+            "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than",
+            "too", "very", "s", "t", "can", "will", "just", "don", "should", "now")
+
+corpus_review <- Corpus(VectorSource(amazon_electronics_do_recommend_surfacepro$reviews.text))
+#View(corpus_review)
+corpus_review <- tm_map(tm_map(tm_map(corpus_review, tolower), removePunctuation), removeWords, stop_words)
+
+review_dtm <- DocumentTermMatrix(corpus_review)
+review_tdm <- TermDocumentMatrix(corpus_review)
+review_m <- as.matrix(review_tdm)
+review_term_freq <- rowSums(review_m)
+review_term_freq <- sort(review_term_freq, decreasing = T)
+review_word_freq <- data.frame(term = names(review_term_freq),
+                               num = review_term_freq)
+wordcloud(review_word_freq$term, review_word_freq$num,
+          max.words = 30, colors = c("blue","darkgoldenrod","tomato"))
+```
