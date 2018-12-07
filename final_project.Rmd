@@ -28,6 +28,8 @@ library(dendextend)
 library(ggplot2)
 library(ggthemes)
 library(reshape2)
+library(sentimentr)
+library(plotly)
 ```
 
 ```{r}
@@ -133,4 +135,45 @@ review_word_freq <- data.frame(term = names(review_term_freq),
                                num = review_term_freq)
 wordcloud(review_word_freq$term, review_word_freq$num,
           max.words = 30, colors = c("blue","darkgoldenrod","tomato"))
+```
+
+## 4. Product Online Image
+```{r}
+sen_text <- get_sentences(as.character(amazon_electronics$reviews.text))
+sen_text <- sentiment_by(sen_text)
+
+amazon_electronics_with_sentiment <- amazon_electronics
+amazon_electronics_with_sentiment['sentiment.score'] <- sen_text$ave_sentiment
+#amazon_electronics_with_sentiment %>% 
+#  select(brand, reviews.doRecommend, reviews.rating, sentiment.score)%>% 
+#  na.omit() %>%
+#  group_by(brand) %>% 
+#  mutate(n = n(), average.rating = sum(reviews.rating)/n(), average.sentiment = sum(sentiment.score)/n()) %>% 
+#  distinct(brand, .keep_all=TRUE) %>% 
+#  group_by(brand, reviews.doRecommend) %>% 
+#  mutate(prop.recommend = prop.table(n)) %>%
+#  filter(reviews.doRecommend == TRUE)
+```
+
+```{r}
+summarise_table_0 <- amazon_electronics_with_sentiment %>% 
+  select(brand, reviews.doRecommend, reviews.rating, sentiment.score)%>% 
+  na.omit() %>%
+  group_by(brand) %>% 
+  summarise(n = n(), average.rating = sum(reviews.rating)/n(), average.sentiment = sum(sentiment.score)/n(),    prop.recommend = sum(reviews.doRecommend)/n())
+#  mutate(n = n(), average.rating = sum(reviews.rating)/n(), average.sentiment = sum(sentiment.score)/n()) %>% 
+#  distinct(brand, .keep_all=TRUE) %>% 
+#  group_by(brand, reviews.doRecommend) %>% 
+#  mutate(prop.recommend = prop.table(n)) %>%
+#  filter(reviews.doRecommend == TRUE)
+```
+
+```{r}
+p <- plot_ly(summarise_table_0, x = ~average.rating, y = ~average.sentiment, z = ~prop.recommend, text=~paste('Brand:', brand)) %>%
+  add_markers() %>%
+  layout(scene = list(xaxis = list(title = 'Rating'),
+                     yaxis = list(title = 'Sentiment'),
+                     zaxis = list(title = 'Do Recommend')))
+
+ggplotly(p)
 ```
