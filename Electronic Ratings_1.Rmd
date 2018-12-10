@@ -19,6 +19,7 @@ My goal is to focus on the time variable in our dataset. Our dataset includes an
 library(tidyverse)
 library(lubridate)
 library(plotly)
+library(r2d3)
 #electron_data <- 
 #  read.csv(file="/Users/easonlian/Desktop/programming/eda/Project/DatafinitiElectronicsProductData.csv", 
 #                            header=TRUE, sep=",")
@@ -71,6 +72,7 @@ average_rating_select2 <- yx_select %>% group_by(brand, month = floor_date(revie
 library(reshape2)
 library(sentimentr)
 library(plotly)
+
 sen_text <- get_sentences(as.character(electron_data$reviews.text))
 sen_text <- sentiment_by(sen_text)
 
@@ -94,7 +96,7 @@ summarise_table_0 <- electron_data_with_sentiment %>%
   select(name, reviews.doRecommend, reviews.rating, sentiment.score)%>% 
   na.omit() %>%
   group_by(name) %>% 
-  summarise(n = n(), average.rating = sum(reviews.rating)/n(), average.sentiment = sum(sentiment.score)/n(),    prop.recommend = sum(reviews.doRecommend)/n())
+  summarise(n = n(), average.rating = sum(reviews.rating)/n(), average.sentiment = sum(sentiment.score)/n(), prop.recommend = sum(reviews.doRecommend)/n())
 
 sentiment_plot_product <- plot_ly(summarise_table_0, x = ~average.rating, y = ~average.sentiment, z = ~prop.recommend,size=4, text=~paste('Rating:',round(average.rating, 3),'<br>Sentiment:',round(average.sentiment, 3), '<br>Recommend:', round(prop.recommend, 3), '<br>name:', substr(name, 1, 30))) %>%
   add_markers() %>%
@@ -149,9 +151,16 @@ stop_words <- c("i", "me", "my", "myself", "we", "our", "ours", "ourselves", "yo
 ```
 
 ```{r}
+library(shinythemes)
+library(shinyWidgets)
 # Define UI for application that draws a histogram
-ui <- shinyUI(fluidPage(
-
+ui <- shinyUI(fluidPage(theme = shinytheme("lumen"),
+                        setBackgroundColor(
+    #color = c("#ffb93b", "#fff1d8"),
+    color = c("#cef8ed", "#b9cbff"),
+    gradient = "radial",
+    direction = c("top", "left")
+  ),
   # Application title
   titlePanel("Amazon Electronic Product Data Analysis"),
   
@@ -182,7 +191,6 @@ ui <- shinyUI(fluidPage(
   sidebarLayout(
     sidebarPanel(
       width = 3,
-      #textInput("title", "Plot title:", value = "x v y"),
       fluidRow(selectInput("select_product", "Select a Product:", choices = product_name, selected = "Microsoft Surface Pro 4 Type Cover with Fingerprint ID"),
                div(style = "height:0px;"))
     ),
@@ -542,7 +550,9 @@ In summary:
 
 In order to make the graph more interactive, we will try to use shiny next time. Thanks.
 
+```{r}
 
+```
 
 
 
