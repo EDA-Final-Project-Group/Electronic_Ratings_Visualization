@@ -169,11 +169,11 @@ summarise_table_0 <- amazon_electronics_with_sentiment %>%
 ```
 
 ```{r}
-p <- plot_ly(summarise_table_0, x = ~average.rating, y = ~average.sentiment, z = ~prop.recommend, text=~paste('Brand:', brand)) %>%
+p <- plot_ly(summarise_table_0, x = ~average.rating, y = ~average.sentiment, z = ~n, text=~paste('Brand:', brand)) %>%
   add_markers() %>%
   layout(scene = list(xaxis = list(title = 'Rating'),
                      yaxis = list(title = 'Sentiment'),
-                     zaxis = list(title = 'Do Recommend')))
+                     zaxis = list(title = 'Num Reviews')))
 
 ggplotly(p)
 ```
