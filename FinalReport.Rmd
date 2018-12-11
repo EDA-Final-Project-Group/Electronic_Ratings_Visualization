@@ -1,0 +1,803 @@
+---
+title: "Review Analysis for Amazon and Bestbuy Electronics"
+date: "12/10/2018"
+output:
+  html_document: 
+    code_folding: "hide"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Data source link: https://data.world/datafiniti/amazon-and-best-buy-electronics
+
+Github link: https://github.com/EDA-Final-Project-Group/Electronic_Ratings_Visualization
+
+Shiny App link: https://visualliance.shinyapps.io/FinalProject/
+
+d3 link: https://github.com/EDA-Final-Project-Group/Electronic_Ratings_Visualization/blob/master/D3Visualization.html
+
+
+# 1. Introduction
+
+Love it or hate it? A five-star hit product or a one-star failed purchase? Reviews are the most significant indicators of a product's success, and also, an important factor in the customers' buying decision. In this report, we present a deep dive into over 7,000 reviews for 50 electronic products sold in Amazon and Bestbuy.
+
+We want to dentify how consumer feedback impacts the product buying process. More specfically, we posit the questions as follows:
+
+- What are the review activity trackings for different electronic products?
+
+- What is the correlation among 4 dimensions of the review, i.e.populaity, reputation, sentiment and recommendation?
+
+- For each product, how do ratings and sentiments change over time?
+
+- How are the above patterns characterized by brands?
+
+
+### Team members
+
+L: d3, report draft, sentiment analysis
+
+Y: Shiny, time series, report draft
+
+Y: Shiny, report draft, sentiment analysis
+
+Z: Shiny, text analysis, report draft
+
+
+### Our Methods 
+
+Before we get into the exploratative journey, let’s talk about how we analyze the dataset:
+
+* Data preprocessing and manipulating in basic R
+
+* Static visualizations by ggplot
+
+* Text analysis (sentiment analysis, topic models, word cloud) 
+
+* Interactive components via Shiny App and d3
+
+
+# 2. Description of Data
+
+The dataset contains over 7000 online reviews for 50 electronic products from Amazon and Best Buy provided by [Datafiniti's Product Database](https://datafiniti.co/products/product-data/). The dataset includes the review date, source, rating, title, reviewer metadata, and more. Note that our dataset is a sample from a large data set. You can access the sample from [Data World](https://data.world/datafiniti/amazon-and-best-buy-electronics). The full data set is available through Datafiniti.
+
+```{r cache=TRUE, message=FALSE}
+library(tidyverse)
+library(extracat)
+library(sentimentr)
+library(htmltools)
+library(lubridate)
+library(plotly)
+library(forcats)
+library(GGally)
+library(cowplot)
+library(udpipe)
+library(lattice)
+library(gridExtra)
+library(grid)
+library(tm)
+library(wordcloud)
+# Load data
+electron_data = read.csv("DatafinitiElectronicsProductData.csv", header=TRUE)
+```
+
+Each entry is a review for a certain product. There are `r {nrow(electron_data)}` review entries in total. Each review is described by `r {ncol(electron_data)}` variables in the dataset, which are
+```{r}
+print(colnames(electron_data))
+```
+
+A full data schema could be found [here](https://developer.datafiniti.co/docs/product-data-schema). In this project, we focus on 8 selected variables:
+
+1) Product-related variable: `name` and the `brand` of the product
+
+2) Reviews-related variable:
+
+* `reviews.date` - the date that the review is added
+* `reviews.doRecomment` - True if recommend, and false otherwise
+* `reviews.numHelpful` - the number of peole that found this review helpful
+* `reviews.rating` - a 1 to 5 star value for the review.
+* `reviews.text` - the full (or available) text of the review
+* `reviews.title` - the review's title.
+
+```{r cache=TRUE}
+# selecting useful variables to get a new dataframe
+electron_data = electron_data %>%
+  select(name, brand, reviews.date, reviews.doRecommend, reviews.numHelpful,
+         reviews.rating, reviews.text, reviews.title)
+```
+
+# 3. Analysis of Data Quality
+
+### 3.1 Missing patterns
+
+#### 1) missing pattern in the whole dataset
+
+First, we want to check the completeness of the dataset.
+```{r warning = FALSE, cache = TRUE}
+miss_table = as.data.frame.list(colMeans(is.na(electron_data)) %>%
+  sort(decreasing = TRUE))
+print(miss_table)
+```
+
+We could see that only 3 out of 8 variables have missing values, with percentage of 20%, 19% and 2%.  
+
+```{r echo=TRUE, cache=TRUE, fig.height=5, fig.width=5}
+visna(electron_data, 'c')
+```
+
+In addition, the missing value plot also indicates that most of the data are complete, with only a few entries have missing values. Hence, our data is of good quality in terms of missing values.
+
+
+#### 2) missing pattern in `doRecommend` and `numHelpful` -- are they similar?
+
+From the visna plot, the dominant missing pattern is missing both `reviews.doRecommend` and `reviews.numHelpful`. The plot below also demonstrates this point.
+
+```{r echo = TRUE, fig.width = 8, fig.height = 6, warning = FALSE, cache = TRUE}
+percent_missing_doRecomm2 <- electron_data  %>% group_by(brand) %>% 
+  summarise(num_product = n(), num_na = sum(is.na(reviews.doRecommend))) %>% 
+  mutate(percent_na_recommend = round(num_na/num_product, 2))
+percent_missing_doRecomm = data.frame(percent_missing_doRecomm2)
+percent_missing_doHelp2 <- electron_data %>% group_by(brand) %>% 
+  summarise(num_product = n(), num_na = sum(is.na(reviews.numHelpful))) %>% 
+  mutate(percent_na_doHelp = round(num_na/num_product, 2))
+percent_missing_doHelp2 = data.frame(percent_missing_doHelp2)
+compare_na = data.frame(percent_missing_doHelp2$brand, percent_missing_doHelp2$percent_na_doHelp, percent_missing_doRecomm$percent_na_recommend)
+
+colnames(compare_na)[1]<-"brand"
+colnames(compare_na)[2]<-"do.Helpful.NA"
+colnames(compare_na)[3]<-"do.Recommend.NA"
+
+tidy_table3 = compare_na %>% gather(`do.Helpful.NA`,`do.Recommend.NA`, key = 'Types', value =Percentage)
+
+p3 <- ggplot(data=tidy_table3, aes(x=reorder(brand, Percentage), y=Percentage, fill=Types)) +
+  geom_bar(stat="identity", position='fill')+coord_flip()+
+  xlab("product name") + ylab('NA Percentage') + 
+  ggtitle('Review Do Recommend/Help Bar chart')+
+  theme(plot.title = element_text(size=20), text = element_text(size=10))
+p3
+```
+
+
+* The miss value in `review.doHelpful` and `review.doRecommend` almost have the same pattern, except for the brand *Lowepro* and *Microsoft*. 
+
+#### 3) missing pattern in `rating` -- are the reviews representative?
+
+However, since this is a review analysis, we care about the completness and representativeness of review information. For example, the average number of reviews for a product is very high, but the number of reviews for this product is only 3. In this case, the review information is not representative, and we shoule filter out this product.
+
+Specifically, we dig into the missing pattern in `reviews.rating`.
+
+```{r, fig.width=10, fig.height=10, cache=TRUE}
+rating.na.df = electron_data %>% 
+  group_by(name) %>%
+  summarise(num.product = n(), num.na = sum(is.na(reviews.rating))) %>%
+  mutate(percent.na = round(num.na / num.product, 2))%>%
+  arrange(desc(percent.na))
+
+print(rating.na.df)
+```
+
+The table aobve presents the missing patterns for each product. We could see that there are products like *CRX-322 CD Receiver* are missing a high percentage of reviews, and products like *Prime Three-Way Center Channel Speaker (Premium Black Ash)*, despite not missing any review, have a very limited number of total reviews.
+
+**Treatment**:
+
+To carry out an effective analysis, we should focus on effective data -- products with low percentage of missing review, and high number of total reviews.
+
+Hence, we filter out the products with total reviews less than 20, or the missing review percentage higher than 30%. Moreover, we filter out the reviews that miss rating information.
+
+```{r cache=TRUE}
+product.filter = rating.na.df %>% 
+  filter(num.product < 21 | percent.na > 0.3)
+
+electron_data = electron_data %>% 
+    filter(! name %in% product.filter$name) %>%
+    filter(! is.na(reviews.rating))
+# removing empty levels
+electron_data$name = factor(electron_data$name)
+electron_data$brand = factor(electron_data$brand)
+```
+
+Now, the dataset consists of `r {nrow(electron_data)}` reviews, for `r {length(unique(electron_data$name))}` products and `r {length(unique(electron_data$brand))}` brands.
+
+### 3.2 Renaming variable levels
+
+The original product names are very long, for example: *Logitech 915-000224  Harmony Ultimate One 15-Device Universal Infrared Remote with Customizable Touch Screen Control - Black*. For better readability, we shorten the product name by extracting the essential information, for example: *Logitech Remote*.
+
+```{r}
+clean.names = c("Red HDD", "Acoustimass Speaker", "Air-Fi Headphones", "Alpine", "Alpine Car Speakers", "AW Outdoor Speaker",  "B&W Headphones" ,  "Boytone Theater System",   "Corsair Channel Kit", "Everest Headphones", "Flipside Backpack", "iHome Speaker", "JBL Car Speakers "  ,"JVC Media Receiver", "Lenovo AC Adapter",  "Logitech Remote", "Logitech Gaming Mouse", "Microsoft Type Cover",   "Midland Alert Radio", "Motorola Video Camera", "Nighthawk USB Adapter",  "NS Speaker System", "NS-SP Theater System","PNY Desktop Memory", "SAMSUNG Smart TV", "Samsung Charger", "Sanus Mount ", "SiriusXM Receiver", "Slingbox M2", "Sony Mini-System", "Sony CD Receiver", "Sony Video Cassettes", "Sony Wireless Speaker","Sony Portable Speaker", "SRS Wireless Speaker", "Travel Wall Charger", "UltimateSpeaker", "Verizon Hotspot", "XPS Computer")
+levels(electron_data$name) = clean.names
+```
+
+
+# 4. Main Analysis
+
+The roadmap for the main analysis follows from the 4 questions we pose in the introduction part.
+
+### 4.1. What are the review activity trackings for different electronic products?
+
+Since each product is launched at a different time, their user reviews are also active during different periods across the decade (2008 - 2018). We use strip chart to visualize when these reviews are clustered for each product. Also, it tells us approximately when a product launched --> gained popularity --> stabilize --> decline among population's discussion.
+
+```{r echo = TRUE, fig.width = 8, fig.height = 8, warning = FALSE, cache = TRUE}
+yx_select <- select(electron_data, name, reviews.date, reviews.rating)
+yx_select <- yx_select[rowSums(is.na(yx_select)) == 0, ] #remove na rows
+yx_select$reviews.date <- as.Date(yx_select$reviews.date)
+
+ggplot(data=yx_select, aes(x=name, y=reviews.date, color=name)) + 
+  geom_point(size=1.5) + theme(legend.position="none", plot.title = element_text(size=20, face="bold"),
+                     text = element_text(size=6), axis.title = element_text(size=15, face="bold")) + 
+  ggtitle("Review activity trackings") + 
+  coord_flip()
+```
+
+THe first place to get insight is the time tracking of review activity. The plot shows the review date range of all products so that we can have a clear viewpoint about when the first and last reviews were produced. It indicates most of the reviews have a date range of 4 years from 2014 to 2018.  
+
+Next, we specifically discuss two metrics that imply popularity of products -- number of reviews commented and average rating given. Furthermore, we try to compare the trend between these two metrics. Does more reviews and high ratings imply one another? 
+
+From the plot, for example, the review activity of Acoustimass Speaker is bimodal. It reached its heyday from 2013 to 2015. After 2015, the reviews activity declined heavily, but from 2017, it recovered its popularity.
+
+
+```{r fig.height=5, fig.width=8, warning = FALSE, cache = TRUE}
+review_count_select <- yx_select %>% 
+  group_by(name, month = floor_date(reviews.date, unit = "month")) %>% 
+   summarise(n = n()) %>% mutate(freq = n/sum(n)) 
+
+selected1 = review_count_select[
+  review_count_select$name == c("Alpine" ),]
+
+average_rating_select <- yx_select %>% 
+  group_by(name, month = floor_date(reviews.date, unit = "month")) %>% 
+   summarise(average.rating = mean(reviews.rating, na.rm=TRUE))
+
+selected2 = average_rating_select[
+  average_rating_select$name == c("Alpine"),]
+
+selected <- data.frame(selected1, selected2$average.rating)
+colnames(selected)[5] = 'average.rating'
+
+
+p <- ggplot(selected, aes(x = month))
+p <- p + geom_line(aes(y = freq, colour = "Frequency"))
+p <- p + geom_line(aes(y = average.rating/30, colour = "Ave_rating"))
+p <- p + scale_y_continuous(sec.axis = sec_axis(~.*30, name = "Average Rate stars"))
+p <- p + scale_colour_manual(values = c("steelblue2", "orange1"))
+p <- p + labs(y = "Review Frequency",
+              x = "Month",
+              colour = "Parameter")
+p <- p + theme(legend.position = c(0.8, 0.5)) +ggtitle('Comparsion of Average rate and Review Frequency Over time') + theme_gray(base_size = 14)
+p
+```
+
+In the plot above, we take product "Alpine" as an example. It implies the average rating of users has the similar trend with review number. Besides, we can see the trends from the time series plot that there is a burst of review number around March 2016 and a sharp decrease of average rating around September 2016. Because all 50 products will make the plot too messy, we use [shiny app](https://visualliance.shinyapps.io/FinalProject/) (in Interactive Component) which allows user to switch different products to see their trends.
+
+For Alpine, there is no obvious common pattern between average rating and review frequency, which implies a weak relationship between these two variables.
+
+### 4.2. What is the correlation between different dimensions of the review? 
+
+In this section, we evalute the review from 4 dimensions:
+
+- popularity -- identified by the number of reviews
+- reputation -- identified by the number of recommendagtions, and the ratings
+- sentiment -- encoded in the review text
+- recommendation -- whether or not recommend
+
+Speciel notes on the sentiment score: we use an NLP package `sentimentr` to convert each review text to a numerical score that approximates the sentiment (polarity) of it. The negative sentiment implies negative sentiment, 0 sentiment score implies neutral sentiment, amnd the positive sentiment score implies positive sentiment.
+
+Since the analysis involves multi-dimensional metrics over different products, we break the problem down: first, we examine each single dimension over different products; then we investigate pairwise, as well as triplet relationship among three metrics.
+
+#### 4.2.1. Dimension-wise analysis
+
+#### 1) Popularity
+
+The popularity, i.e., the numebr of reviews, has been investigated in last question.
+
+#### 2) Recommendation
+
+```{r fig.width = 8, fig.height = 8, warning = FALSE, cache = TRUE}
+amazon_electronics_missing_dorecommend_removed <-electron_data[!is.na(electron_data$reviews.doRecommend),]
+
+cbPalette0 <- c("orange1", "steelblue1")
+p.recommend <- ggplot(amazon_electronics_missing_dorecommend_removed, aes(x = fct_infreq(name), y = reviews.doRecommend, fill= factor(reviews.doRecommend))) + 
+    geom_bar(stat="identity") + 
+  theme(plot.title = element_text(size = 20, face = "bold"), axis.title=element_text(size=15,face="bold"),
+        legend.text=element_text(size=15), legend.title=element_text(size=15),legend.position="top",
+        axis.text.x = element_blank()) +
+  ggtitle("Recomendations for each product") +
+  xlab("Product name") + ylab("Count") +
+  coord_flip() + scale_fill_manual(values=cbPalette0, name="Recommend?") 
+p.recommend
+```
+
+**Observation:** 
+
+It seems most of users who wrote reviews tend to give "doRecommend". This applies to the top 5 popular products. Then it becomes important to summarise users comments -- their descriptions, key words, etc. Also, as mentioned above, we need to analyze review text of users who do not fill in "do/do not Recommend".  
+
+
+#### 3) Sentiment score
+
+```{r fig.width = 8, fig.height = 8, warning = FALSE, cache = TRUE}
+sen_text <- get_sentences(as.character(electron_data$reviews.text))
+sen_text <- sentiment_by(sen_text)
+amazon_electronics_with_sentiment <- electron_data
+amazon_electronics_with_sentiment['sentiment.score'] <- sen_text$ave_sentiment
+ggplot(data=amazon_electronics_with_sentiment, aes(x=name, y=sentiment.score, color=name)) + 
+  geom_point(size=1.5) + theme(legend.position="none", plot.title = element_text(size=20, face="bold"),
+                     text = element_text(size=8), axis.title = element_text(size=15, face="bold")) + 
+  ggtitle("Sentiment score scatterplot by product") + 
+  coord_flip()
+```
+
+**Observation**
+
+The range / average point / median of sentiment scores vary from product to product. However, from this static plot we could not get more insights: e.g. how do sentiment score correlates with other dimension of review? or what specific text contributes to a low sentiment score? We will answer those questions in the interaction component part.
+
+
+#### 3) Rating distribution
+
+```{r fig.width = 8, fig.height = 8, warning = FALSE, cache = TRUE}
+ratings = electron_data %>% 
+  group_by(name, reviews.rating) %>%
+  summarise(n = n()) %>%
+  transmute(reviews.rating, freq = n / sum(n))
+
+ratings$reviews.rating = factor(ratings$reviews.rating)
+
+ratings$freq.good = 2
+for( i in 1:nrow(ratings)){
+  bname = ratings[i,]$name
+  l5 = ratings %>% filter(name==bname, reviews.rating==5) 
+  l4 = ratings %>% filter(name==bname, reviews.rating==4)
+  ratings[i,]$freq.good = l5$freq + l4$freq
+}
+
+cbPalette <- c("peachpuff1", "orange1", "chocolate3", "steelblue3", "slategray2")
+p.rating.dist = ggplot(ratings, aes(x = reorder(name, freq.good), fill=reviews.rating)) + 
+      geom_bar(data = subset(ratings, reviews.rating %in% c(1,2, 3)),
+               aes(y = -freq), position="stack", stat="identity") +
+      geom_bar(data = subset(ratings,
+                             reviews.rating %in% c(4,5)), 
+               aes(y = freq),
+               position = position_stack(reverse = TRUE), stat="identity") + 
+      xlab('product name') + ylab('percentage')  + 
+      ggtitle('How customers rate the products?') + 
+      theme(plot.title = element_text(size = 20, face = "bold"), text = element_text(size=10)) + 
+      coord_flip() + scale_fill_manual(values=cbPalette, name="Stars") 
+p.rating.dist
+```
+
+**Observation:** 
+
+The diverging bar chart suggests that:
+- As the percentage of 5-star ratings decreases (which is due to the plot rule we define), the 'center' of the bar shifts to the left, which suggests the overall rating of the brands are shifting to negative.
+
+- Customers rarely give an extreamely negative rating, which is 1-star. For those brands that have really low percentage of 5-star ratings, the percentage of 1-star ratings are not relatively high compare to other brands. However, the percentage of 3-star ratings increase as that of 5-star rating decrease, which can be an interesting take-away.
+
+
+#### 4.2.2. Pairwise correlation among dimensions
+
+```{r fig.width = 6, fig.height = 5, warning = FALSE, cache = TRUE, message= FALSE}
+summarise_table_name <- amazon_electronics_with_sentiment %>% 
+  select(name, reviews.doRecommend, reviews.rating, sentiment.score)%>% 
+  na.omit() %>%
+  group_by(name) %>% 
+  summarise(n = n(), average.rating = sum(reviews.rating)/n(), average.sentiment = sum(sentiment.score)/n(),    prop.recommend = sum(reviews.doRecommend)/n())
+ggpairs(summarise_table_name, columns = 2:5, lower = list(combo = wrap("facethist", binwidth = 0.5)))
+
+```
+
+**Observation:**
+
+Using pair correlation plot, we can more closely examine the relationship between these metrics. For metrics, number of reviews and review sentiment follow right-skewed distribution; average ratings and proportion or recommend follow left-skewed distribution. For pair relationship, average rating and proportion of recommend are highly positively correlated; most reviews are clustered and associated with high average rating but few of them are associated with high review sentiment (>0.5); also there is no clear positive correlation between high sentiment and high rating.
+
+
+
+### 4.3. For each product, how do ratings and user sentiment change over time?
+
+**Approach**: in this section, we use both **shiny app** and **d3** visualization to investigate the relationship between ratings and user sentiment over time for each product. Shiny app allows us to view target relationship in each individual product. For the report purpose, we pick two products -- "iHome Rechargeable Splash Proof Stereo Bluetooth Speaker"-- and Microsoft Surface Pro 4 plot the development of their ratings and sentiment as shown in our shiny app. D3 visualization, besides including per product ratings and sentiment, provides other information such as number of reviews, most positive/negative review, etc.
+
+```{r fig.width = 10, fig.height = 3, warning = FALSE, cache = TRUE}
+electron_data$reviews.date <- as.Date(electron_data$reviews.date)
+
+sentiment_df = data.frame(electron_data$name, electron_data$reviews.date,sen_text$ave_sentiment, electron_data$reviews.rating)
+
+colnames(sentiment_df)[1]<-"name"
+colnames(sentiment_df)[2]<-"review_date"
+colnames(sentiment_df)[3]<-"text_scores"
+colnames(sentiment_df)[4]<-"rating"
+
+sentiment_df <- sentiment_df[rowSums(is.na(sentiment_df)) == 0, ] #remove na rows
+
+product <- sentiment_df[sentiment_df$name == unique(sentiment_df$name)[7],]
+tidy_table <- product %>% group_by(month = floor_date(review_date, unit = "month")) %>% summarise(ave_review_text_scores = sum(text_scores)/n(), ave_rating = sum(rating)/n())
+
+tidy_table = data.frame(tidy_table)
+
+p1 <- ggplot(tidy_table, aes(x = month))
+p1 <- p1 + geom_line(aes(y = ave_review_text_scores, colour = "Sentiment Score"), size = 1)
+
+# adding the relative ave_rating data, transformed to match roughly the range of the sentimental scores 
+p1 <- p1 + geom_line(aes(y = ave_rating/13, colour = "Ave_rating"), size = 1)
+
+# now adding the secondary axis, following the example in the help file ?scale_y_continuous
+# and, very important, reverting the above transformation
+p1 <- p1 + scale_y_continuous(sec.axis = sec_axis(~.*13, name = "Average Rate stars"))
+
+# modifying colours and theme options
+p1 <- p1 + scale_colour_manual(values = c("steelblue2", "orange1"))
+p1 <- p1 + labs(y = "Sentimental Scores",
+              x = "Month",
+              colour = "Parameter")
+p1 <- p1 + theme(legend.position="none")+ggtitle('Stereo Bluetooth Speaker') 
+p1 <-p1 + theme_gray(base_size = 14) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+product <- sentiment_df[sentiment_df$name == unique(sentiment_df$name)[1],]
+tidy_table <- product %>% group_by(month = floor_date(review_date, unit = "month")) %>% summarise(ave_review_text_scores = sum(text_scores)/n(), ave_rating = sum(rating)/n())
+
+tidy_table = data.frame(tidy_table)
+p2 <- ggplot(tidy_table, aes(x = month))
+p2 <- p2 + geom_line(aes(y = ave_review_text_scores, colour = "Sentiment Score"), size = 1)
+
+# adding the relative ave_rating data, transformed to match roughly the range of the sentimental scores 
+p2 <- p2 + geom_line(aes(y = ave_rating/13, colour = "Ave_rating"), size = 1)
+
+# now adding the secondary axis, following the example in the help file ?scale_y_continuous
+# and, very important, reverting the above transformation
+p2 <- p2 + scale_y_continuous(sec.axis = sec_axis(~.*13, name = "Average Rate stars"))
+
+# modifying colours and theme options
+p2 <- p2 + scale_colour_manual(values = c("steelblue2", "orange1"))
+p2 <- p2 + labs(y = "Sentimental Scores",
+              x = "Month",
+              colour = "Parameter")
+p2 <- p2 + theme(legend.position=c(0.8, 0.9))+ggtitle('Microsoft Surface Pro 4')
+p2 <-p2 + theme_gray(base_size = 14) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+grid.arrange(p1, p2, ncol=2)
+```
+
+
+**Observation 1:** 
+
+
+* We can see that for the product ""iHome Rechargeable Splash Proof Stereo Bluetooth Speaker", the pattern of the average rate's variation is similar to that of sentimental scores, which corresponds to our common sense. Therefore, in the future, we may fit a model by using `reviews.text` to predict the missing data in `reviews.rating`. 
+
+
+**Observation 2:** 
+
+* However, for some products, such as "Microsoft Surface Pro 4", the trend of the average ratings is not so corresponding to that of sentimental scores. Even in some months, they are in opposite directions. This problem can be explained by the graph in Interactive Component.
+
+
+#### 4.4:  How are these above metioned patterns recognized among different brands?
+
+
+```{r fig.height=6, fig.width=7, echo = TRUE, warning = FALSE, cache = TRUE}
+ratings.brand = electron_data %>% 
+  group_by(brand, reviews.rating) %>%
+  summarise(n = n()) %>%
+  transmute(reviews.rating, freq = n / sum(n))
+ratings.brand$reviews.rating = factor(ratings.brand$reviews.rating)
+ratings.brand$freq.5 = 2
+for( i in 1:nrow(ratings.brand)){
+  bbrand = ratings.brand[i,]$brand
+  l5 = ratings.brand %>% filter(brand==bbrand, reviews.rating==5) 
+  ratings.brand[i,]$freq.5 = l5$freq
+}
+
+#cbPalette <- c("peachpuff1", "orange1", "chocolate3", "steelblue3", "slategray2")
+ggplot(ratings.brand, aes(x = reorder(brand, freq.5), y = freq, fill = reviews.rating)) + 
+  geom_bar(stat = "identity", position = position_fill(reverse = TRUE)) + 
+  xlab('brand') + ylab('percentage') + 
+  ggtitle('How customers like the products from these brands?\n
+          from the most 5-star-level liked to the least') + 
+  coord_flip() + scale_fill_manual(values = c("#99ff99", "#00ffcc", '#33cccc', '#99ccff', '#9966ff'))
+```
+
+**Observation:** 
+
+- Similar to the divergent bichart for each product, for each brand, as the percentage of 5-star ratings decreases, the 'center' of the bar shifts to the left.
+
+- For those brands that have really low percentage of 5-star ratings, the percentage of 1-star ratings are not relatively high compare to other brands. However, the percentage of 3-star ratings increase as that of 5-star ratings decrease.
+
+
+# 5. Executive Summary
+
+We summarise 4 dimensions in the product review:
+
+- Popularity: the number of reviews
+- Reputation: average rating for the product
+- Sentiment: sentiment in the review text (netagive, neutral, or positive)
+- Recommendation: percentage of customers that recommend the product
+
+## 5.1. Winners and Losers
+```{r fig.width = 18, fig.height = 20, cache=TRUE}
+top.popular = head(summarise_table_name %>% arrange(desc(n)), 5) %>%
+  ggplot(aes(x=reorder(name,n), y=n)) + ylim(0,1100) +
+  geom_bar(stat="identity", fill="steelblue2", width=0.6) + 
+  theme(aspect.ratio = 2/1) + xlab("product name") + ylab("number of reviews") + 
+  coord_flip()
+
+bottom.popular = head(summarise_table_name %>% arrange(n), 5) %>%
+  ggplot(aes(x=reorder(name,-n), y=n)) + ylim(0,1100) + 
+  geom_bar(stat="identity", fill="orange1", width=0.6) +
+  theme(aspect.ratio = 2/1) + xlab("") + ylab("number of reviews") +
+  coord_flip()
+
+popular.grid = plot_grid(top.popular, bottom.popular, labels = c("Most popular", "Least popular"), label_size = 20)
+
+top.rating = head(summarise_table_name %>% arrange(desc(average.rating)), 5) %>%
+  ggplot(aes(x=reorder(name,average.rating), y=average.rating)) + ylim(0,5) +
+  geom_bar(stat="identity", fill="steelblue2", width=0.6) + 
+  theme(aspect.ratio = 2/1) + xlab("product name") + ylab("average rating") + 
+  coord_flip()
+
+bottom.rating = head(summarise_table_name %>% arrange(average.rating), 5) %>%
+  ggplot(aes(x=reorder(name,-average.rating), y=average.rating)) + ylim(0,5) + 
+  geom_bar(stat="identity", fill="orange1", width=0.6) +
+  theme(aspect.ratio = 2/1) + xlab("") + ylab("average rating") +
+  coord_flip()
+
+rating.grid = plot_grid(top.rating, bottom.rating, labels = c("Highest Rated", "Lowest Rated"), label_size = 20)
+
+top.sentiment = head(summarise_table_name %>% arrange(desc(average.sentiment)), 5) %>%
+  ggplot(aes(x=reorder(name,average.sentiment), y=average.sentiment)) + ylim(0,0.4)  +
+  geom_bar(stat="identity", fill="steelblue2", width=0.6) + 
+  theme(aspect.ratio = 2/1) + xlab("product name") + ylab("avg. sentiment score") + 
+  coord_flip()
+
+bottom.sentiment = head(summarise_table_name %>% arrange(average.sentiment), 5) %>%
+  ggplot(aes(x=reorder(name,-average.sentiment), y=average.sentiment)) + ylim(0,0.4) + 
+  geom_bar(stat="identity", fill="orange1", width=0.6) +
+  theme(aspect.ratio = 2/1) + xlab("") + ylab("avg. sentiment score") +
+  coord_flip()
+
+sentiment.grid = plot_grid(top.sentiment, bottom.sentiment, labels = c("Most Liked", "Least Liked"), label_size = 20)
+
+top.recommend = head(summarise_table_name %>% arrange(desc(prop.recommend)), 5) %>%
+  ggplot(aes(x=reorder(name,prop.recommend), y=prop.recommend)) + ylim(0,1)  +
+  geom_bar(stat="identity", fill="steelblue2", width=0.6) + 
+  theme(aspect.ratio = 2/1) + xlab("product name") + ylab("Recommend. rate") + 
+  coord_flip()
+
+bottom.recommend = head(summarise_table_name %>% arrange(prop.recommend), 5) %>%
+  ggplot(aes(x=reorder(name,-prop.recommend), y=prop.recommend)) + ylim(0,1) + 
+  geom_bar(stat="identity", fill="orange1", width=0.6) +
+  theme(aspect.ratio = 2/1) + xlab("") + ylab("Recommend. rate") +
+  coord_flip()
+
+recommend.grid = plot_grid(top.recommend, bottom.recommend, labels = c("Top recommended ", "Least recommended"), label_size = 20)
+
+plot_grid(popular.grid, rating.grid, sentiment.grid, recommend.grid,ncol=2)
+```
+
+The first topic to zero in is the "winners and losers" among products jugding from popularity, reputation, sentiment, and recommendation. Here, we see some expected results and unexpected results.
+
+* Popularity does not suggest satisfication.
+
+The most popular, i.e., most reviewed products are not the products that are rated high, or recommended most. For example, despite having highest numebr of reviews, the Logitech Remote sufferes from low rating, recommendations and negative review texts. 
+
+* Sony's products win!
+
+Sony's products appear in the top-5 selections judging from 4 different criteria.
+
+
+## 5.2. Overall satisfictions are high
+
+```{r, echo=FALSE, cache=TRUE, fig.width = 10, fig.height = 8}
+p.recommend + ggtitle("Recommendations Overwhelm Non-recommendations")
+p.rating.dist + ggtitle("Most Products Receive High Ratings") + 
+  theme(plot.title = element_text(size = 20, face = "bold"), axis.title=element_text(size=15,face="bold"),
+        legend.text=element_text(size=15), legend.position="top", legend.title = element_text(size=15))
+```
+
+Investigating into the distribution of ratings and recommendations for all the products, we could see:
+
+* Customers gives much more recommendations than non-recommendations, even to the least-recommended products.
+
+* Customers tend to give higher ratings (4-star and 5-star), even to the bottom-rated products.
+
+In general, the overall satisfication with all these electronic products are high. Does that suggest the quality of products are good? There are some other aspects we could inspect: e.g. the bias in the dataset -- it is possible that customers tend to rate the products they like.
+
+
+## 5.3.Top keywords featuring positive and negative review text
+
+In order to provide useful insight to product development, we need to look at what user says about these products. A straightforward way is to look at keywords and phrases frequently mentioned, in both positive and negative reviews. If we assume that the aspects of products appearing in positive reviews are the ones users tend to feel satistied about, whereas those in negative reviews are the ones users tend to complain about, then we can suggest items in these negative reviews for further improvement. 
+
+Practically we can examine keywords product by product to generate product-specific suggestions, but here we examine all products as a whole -- what users emphasize that could affect their experience with electronic products.  
+
+```{r fig.height=6, fig.width=8, echo=FALSE, cache=TRUE, message=FALSE}
+amazon_electronics_do_recommend <- electron_data[electron_data$reviews.doRecommend == TRUE, ]
+amazon_electronics_donot_recommend <- electron_data[electron_data$reviews.doRecommend == FALSE, ]
+
+# load model
+model <- udpipe_download_model(language = "english")
+udmodel_english <- udpipe_load_model(file = 'english-ewt-ud-2.3-181115.udpipe')
+
+# load dataset (positive reviews and negative reviews)
+s_1 <- udpipe_annotate(udmodel_english, amazon_electronics_do_recommend$reviews.text)
+s_2 <- udpipe_annotate(udmodel_english, amazon_electronics_donot_recommend$reviews.text)
+x_1 <- data.frame(s_1)
+x_2 <- data.frame(s_2)
+
+word_extraction <- function(x, type, title) {
+  if (type == "keyword"){
+    # Automated keyword extraction
+    stats <- keywords_rake(x = x, term = "lemma", group = "doc_id", 
+                           relevant = x$upos %in% c("NOUN", "ADJ"))
+    stats$key <- factor(stats$keyword, levels = rev(stats$keyword))
+    barchart(key ~ rake, data = head(subset(stats, freq > 3), 20), col = "#5CACEE", 
+             main = title, 
+             xlab = "importance score")
+  }else if (type == "noun-verb") {
+    # TOP NOUN-VERB Pairs as Keyword pairs
+    x$phrase_tag <- as_phrasemachine(x$upos, type = "upos")
+    stats <- keywords_phrases(x = x$phrase_tag, term = tolower(x$token), 
+                              pattern = "(A|N)*N(P+D*(A|N)*N)*", 
+                              is_regex = TRUE, detailed = FALSE)
+    stats <- subset(stats, ngram > 1 & freq > 3)
+    stats$key <- factor(stats$keyword, levels = rev(stats$keyword))
+    barchart(key ~ freq, data = head(stats, 20), col = "magenta", 
+             main = "Keywords - simple noun phrases", xlab = "Frequency")
+  }else {
+    ## NOUNS
+    stats <- subset(x, upos %in% c("NOUN")) 
+    stats <- txt_freq(stats$token)
+    stats$key <- factor(stats$key, levels = rev(stats$key))
+    barchart(key ~ freq, data = head(stats, 20), col = "cadetblue", 
+             main = "Most occurring nouns", xlab = "Freq")
+  }
+}
+
+l <- word_extraction(x_1, "keyword", "Top Keywords in Positive Reviews")
+r <- word_extraction(x_2, "keyword", "Top Keywords in Negative Reviews")
+grid.arrange(l, r, ncol=2)
+```
+
+**Observations**:
+
+* Top 5 electronic features that contribute to users' positve experience are blue tooth, passive radiator, finger print, best sounding and surge protector. 
+
+* Top 5 electronic features that contribute to users negative expererience are noise cancelling, fingerprint reader, customer service, touch screen and listening experience. 
+
+### Word cloud
+
+We also plot the wordcloud: the left one is for positive reviews, and the right one for the negative reviews.
+
+```{r fig.width=12, fig.height=8, cache=TRUE, warning=FALSE, message=FALSE}
+stop_words <- c("i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", 
+                "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", 
+                "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", 
+                "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", 
+                "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", 
+                "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", 
+                "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", 
+                "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", 
+                "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than",
+                "too", "very", "s", "t", "can", "will", "just", "don", "should", "now")
+plot_wordcloud <- function(dataset, title){
+  corpus_review <- Corpus(VectorSource(dataset$reviews.text))
+#View(corpus_review)
+  corpus_review <- tm_map(tm_map(tm_map(corpus_review, tolower), removePunctuation), removeWords, stop_words)
+  
+  review_dtm <- DocumentTermMatrix(corpus_review)
+  review_tdm <- TermDocumentMatrix(corpus_review)
+  review_m <- as.matrix(review_tdm)
+  review_term_freq <- rowSums(review_m)
+  review_term_freq <- sort(review_term_freq, decreasing = T)
+  review_word_freq <- data.frame(term = names(review_term_freq),
+                           num = review_term_freq)
+  wordcloud(review_word_freq$term, review_word_freq$num,
+            max.words = 40, colors = c("blue","darkgoldenrod","tomato"), main=title)
+}
+
+par(mfrow=c(1,2))
+positive_word_cloud <- plot_wordcloud(amazon_electronics_do_recommend, "Positive Review WordCloud")
+negative_word_cloud <- plot_wordcloud(amazon_electronics_donot_recommend, "Negative Review WordCloud")
+```
+
+
+# 6. Interactive Components
+
+In this section, we aim to utilize interactive tools (d3, plotly and Shiny App) to reveal information that static graphs fail to show:
+
+* sample review texts contributing to the sentiment score
+* the correlation between different dimensions of review
+* a peak into information per product and per brand
+
+
+### 6.1. Do review text provide enough information about the product?
+ 
+Note that in previous analysis, we point out that average rating and average sentiment score sometimes are not consistent, e.g. a product review with a high rating but low sentiment score. 
+
+In this section, we use d3 to investigate into more details about this issue.
+
+```{r}
+htmltools::includeHTML("D3Visualization.html")
+```
+
+**Observation**:
+
+To answer the question about the discrepancy between sentiment score and average rating, we could hover over any point to check the details information. 
+
+For example, choose *Average Rating* button, select *Cosair Channel Kit*, then hover over the first point, you could see in the below text, that the average rating is 5, but the sentiment score is -0.37. The text also gives the detailed review information that  about the product but complains about the replacing process, which is not directly relevant to the product. Hence, it is likely that the negativeness of the replacing process, not the product itself,  contributes to the low sentiment score.
+
+However, for most products, we could find:
+
+* Consistency between popularity (number of reviews) and sentiment scores.
+
+* Consistency between reputation (average rating) and sentiment scores.
+
+* The changes in sentiment score / popularity / reputation with respect to time.
+
+Whenever the user is curious about a discrepancy, he /she could always hover over the point and see the sample review text!
+
+### 6.2. Relationship between 3 dimensions of reviews
+
+Method:
+
+It is hard to directly compare the review ratings (numerical data) with either whether people recommend (binary data) or sentiment of review text (text data).  We start by examining each single aspect and observing their distribution over different products. And then we use a 3-d dynamic plot to integrate these information together, which illustrates the holistic view of each product's online image.
+
+#### Per-product analysis
+
+
+Now we create a new data set by integrating all 3 dimensions and visualize it using ggplotly.
+
+```{r echo = TRUE, warning = FALSE, cache = TRUE}
+summarise_table_brand <- amazon_electronics_with_sentiment %>% 
+  select(brand, reviews.doRecommend, reviews.rating, sentiment.score)%>% 
+  na.omit() %>%
+  group_by(brand) %>% 
+  summarise(n = n(), average.rating = sum(reviews.rating)/n(), average.sentiment = sum(sentiment.score)/n(),    prop.recommend = sum(reviews.doRecommend)/n())
+
+p <- plot_ly(summarise_table_brand, x = ~average.rating, y = ~average.sentiment, z = ~prop.recommend, text=~paste('Rating:',round(average.rating, 3),'<br>Sentiment:',round(average.sentiment, 3), '<br>Recommend:', round(prop.recommend, 3), '<br>brand:', substr(brand, 1, 30))) %>%
+  add_markers() %>%
+  layout(scene = list(xaxis = list(title = 'Rating'),
+                     yaxis = list(title = 'Sentiment'),
+                     zaxis = list(title = 'Do Recommend')))
+
+ggplotly(p)
+```
+
+**Observation:** 
+
+The 3-D plot displays "online images" of 34 brands. If we rotate the plot making x-axis Rating, y-axis Sentiment and z-axis Do Recommend, then products appearing at upper right inner corner of (or higher rating better sentiment and more recommend) the plot are the ones that gain most popularity among users. In this plot, these examples include Definitive Technology, Corsair, WD etc. The overall pattern shows a linear trend. 
+
+The plot also inspires product manager to think about what aspect the product performs least satisfiably on so that it can draw more attention during product development. A certain product that receives less preferable rating and unpleasant review sentiment can be due to a number of reasons.
+
+
+```{r warning = FALSE, cache = TRUE}
+p <- plot_ly(summarise_table_name, x = ~average.rating, y = ~average.sentiment, z = ~n, text=~paste('Rating:',round(average.rating, 3),'<br>Sentiment:',round(average.sentiment, 3), '<br>Num Reviews:', round(n, 3), '<br>name:', substr(name, 1, 30))) %>%
+  add_markers() %>%
+  layout(scene = list(xaxis = list(title = 'Rating'),
+                     yaxis = list(title = 'Sentiment'),
+                     zaxis = list(title = 'Num Reviews')))
+
+ggplotly(p)
+```
+
+**Observation:** 
+
+The 3-D plot displays "online images" of 50 products. The plot reveals product popularity from 3 different angles: Average Rating, review sentiment score and percentage of users who recommend it. User can compare different products according to their relative position in the 3-d space. For example, if we rotate the plot making x-axis Rating, y-axis Sentiment and z-axis Do Recommend, then products appearing at upper right inner corner of (or higher rating better sentiment and more recommend) the plot are the ones that gain most popularity among users. In this plot, these examples include House of Marley, Sony Digital Casset, JBL Coaxical etc. The overall pattern shows a linear trend. 
+
+The plot also inspires product manager to think about what aspect the product performs least satifiably on so that it can draw more attention during product development. A certain product that receives less preferable rating and unpleasant review sentiment can be due to a number of reasons.
+
+### 6.3 Shiny APP  [HTTP LINK](https://visualliance.shinyapps.io/FinalProject/)
+
+We deploy Shiny application for a better interactive visualization. The challenge we face is to address a series of product-related key questions that helps explain how customer feedback could influence electronic product buying process via interactive visualization:
+
+1. What are the trends for these electronic products? 
+2. What is the correlation between ratings and reviews? 
+3. How is online reputation of different brands? 
+4. What is shared/different pattern of ratings among brands? 
+
+
+# 7. Conclusion
+
+This report is aimed to address several key questions on dynamics between product development and 
+user ratings & reviews in electronic product industry. The main goal is to answer how user reviews could be utilized to improve product development process. We gather 7000 user reviews on 50 electronic products (38 brands) available on Amazon and Best buy, pre-process them and extract insight via visualization. 
+
+During our analysis, we explore several dimensions such as number of reviews, ratings, proportion of recommend, sentiment score etc. to quantify a certain product/ brand online image. When looking into each single dimension and then interaction among 3+ dimensions, we discover some interesting patterns both within and across products (See section 4.2). In addition, the analysis of a dimension change over time (See section 4.3) is noteworthy as it is essential for product monitoring.
+
+We rely on both static and interactive visualizations for our analysis: for static graph, we use various plot types such as stacked/divergent bar chart, strip chart, 2D/3D scatter plot, line graph, correlation plot, wordcloud, etc.; for interactive, we use both R shiny web app and D3.js. Interactive visualization allows our analysis to push to finer granularity i.e. per product, per brand, per time step. 
+
+The limitation of project comes from the following two angles: (1) the handling of NAs existing in `prop.recommend` and `ratings`. As mentioned in earlier part, users who comment tend to give "Recommend product" than not, which is likely to shift our analysis to a more positive side. Due to the limitation of project time and scope, we are unable to fetch or predict the response of these users who do not give a choice. The lack of evidence introduces uncertainty to our analysis on relationship between 4 review dimensions (Section 4.2). (2) the deeper analysis of text review. Currently we dichotimize all reviews into positive and negative reivews based on whether `reviews.doRecommend` is True or False. Then we make use of RAKE (Rapid Automatic Keyword Extraction) algorithm to extract key phrases, which also turn out to be frequently mentioned items, parts, modules or components of electronic products. The calculation of sentiment score is another use. Besides, no further natural language techniques are employed to extract further information from the review text. 
+
+We hope more future effort can be devoted to text mining of product review texts because users can tell a lot more about their experience or improvement suggestions with the products. There is room for the use of prediction and forecasting techniques, e.g. the prediction of future product ratings based on user reviews and number of reviews in the past. The dataset could also be associated with product actual sales, which will move the problem gradually into product marketing space.
+
+
