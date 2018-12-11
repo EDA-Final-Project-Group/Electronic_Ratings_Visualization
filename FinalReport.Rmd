@@ -1,6 +1,5 @@
 ---
 title: "Review Analysis for Amazon and Bestbuy Electronics"
-author: "Luhuan Wu, Zhongling Jiang, Yixin Lian, Yunbai Zhang"
 date: "12/10/2018"
 output:
   html_document: 
@@ -37,13 +36,13 @@ We want to dentify how consumer feedback impacts the product buying process. Mor
 
 ### Team members
 
-Luhuan Wu (lw2827): d3, report draft, sentiment analysis
+L: d3, report draft, sentiment analysis
 
-Yixin Lian (yl4089): Shiny, time series, report draft
+Y: Shiny, time series, report draft
 
-Yunbai Zhang (yz3386): Shiny, report draft, sentiment analysis
+Y: Shiny, report draft, sentiment analysis
 
-Zhongling Jiang (zj2249): Shiny, text analysis, report draft
+Z: Shiny, text analysis, report draft
 
 
 ### Our Methods 
@@ -608,7 +607,7 @@ amazon_electronics_donot_recommend <- electron_data[electron_data$reviews.doReco
 
 # load model
 model <- udpipe_download_model(language = "english")
-udmodel_english <- udpipe_load_model(file = 'english-ud-2.0-170801.udpipe')
+udmodel_english <- udpipe_load_model(file = 'english-ewt-ud-2.3-181115.udpipe')
 
 # load dataset (positive reviews and negative reviews)
 s_1 <- udpipe_annotate(udmodel_english, amazon_electronics_do_recommend$reviews.text)
