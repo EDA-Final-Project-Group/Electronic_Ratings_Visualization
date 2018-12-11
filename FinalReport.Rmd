@@ -580,7 +580,7 @@ Sony's products appear in the top-5 selections judging from 4 different criteria
 
 ## 5.2. Overall satisfictions are high
 
-```{r, echo=FALSE, cache=TRUE, fig.width = 8, fig.height = 8}
+```{r, echo=FALSE, cache=TRUE, fig.width = 10, fig.height = 8}
 p.recommend + ggtitle("Recommendations Overwhelm Non-recommendations")
 p.rating.dist + ggtitle("Most Products Receive High Ratings") + 
   theme(plot.title = element_text(size = 20, face = "bold"), axis.title=element_text(size=15,face="bold"),
