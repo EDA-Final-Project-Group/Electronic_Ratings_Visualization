@@ -19,15 +19,15 @@ s_2 <- udpipe_annotate(udmodel_english, amazon_electronics_donot_recommend$revie
 x_1 <- data.frame(s_1)
 x_2 <- data.frame(s_2)
 
-word_extraction <- function(x, type) {
+word_extraction <- function(x, type, title) {
   if (type == "keyword"){
     # Automated keyword extraction
     stats <- keywords_rake(x = x, term = "lemma", group = "doc_id", 
                            relevant = x$upos %in% c("NOUN", "ADJ"))
     stats$key <- factor(stats$keyword, levels = rev(stats$keyword))
-    barchart(key ~ rake, data = head(subset(stats, freq > 3), 20), col = "red", 
-             main = "Keywords identified by RAKE", 
-             xlab = "Rake")
+    barchart(key ~ rake, data = head(subset(stats, freq > 3), 20), col = "#5CACEE", 
+             main = title, 
+             xlab = "importance score")
   }else if (type == "noun-verb") {
     # TOP NOUN-VERB Pairs as Keyword pairs
     x$phrase_tag <- as_phrasemachine(x$upos, type = "upos")
@@ -49,11 +49,9 @@ word_extraction <- function(x, type) {
     
 }
 
-l <- word_extraction(x_1, "keyword")
-r <- word_extraction(x_2, "keyword")
+l <- word_extraction(x_1, "keyword", "Top 10 Keywords in Positive Reviews")
+r <- word_extraction(x_2, "keyword", "Top 10 Keywords in Negative Reviews")
 grid.arrange(l, r, ncol=2)
-#word_extraction(x_1, "noun-verb")
-#word_extraction(x_1, "noun")
 
 
 ### Finding
